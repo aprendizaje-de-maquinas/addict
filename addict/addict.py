@@ -1,9 +1,12 @@
+import os
+import json
 import copy
 
 
 class Dict(dict):
 
-    def __init__(__self, *args, **kwargs):
+    def __init__(__self, *args, build=True, **kwargs):
+        object.__setattr__(__self, '__finalized', False)
         object.__setattr__(__self, '__parent', kwargs.pop('__parent', None))
         object.__setattr__(__self, '__key', kwargs.pop('__key', None))
         for arg in args:
@@ -21,7 +24,26 @@ class Dict(dict):
         for key, val in kwargs.items():
             __self[key] = __self._hook(val)
 
+        if build:
+            __self.build()
+            __self._finalize()
+
+    def _assert_finalized(self):
+        if object.__getattribute__(self, '__finalized'):
+            raise RuntimeError('This addict has been finalized and cannot be modified')
+
+    def build(self):
+        print('Warning: The addict build method is not overridden, all instantiations need to happen in the constructor')
+
+    def _finalize(self):
+        object.__setattr__(self, '__finalized', True)
+
+        for k in self:
+            if isinstance(self[k], Dict):
+                self[k]._finalize()
+
     def __setattr__(self, name, value):
+        self._assert_finalized()
         if hasattr(self.__class__, name):
             raise AttributeError("'Dict' object attribute "
                                  "'{0}' is read-only".format(name))
@@ -29,6 +51,7 @@ class Dict(dict):
             self[name] = value
 
     def __setitem__(self, name, value):
+        self._assert_finalized()
         super(Dict, self).__setitem__(name, value)
         try:
             p = object.__getattribute__(self, '__parent')
@@ -42,6 +65,7 @@ class Dict(dict):
             object.__delattr__(self, '__key')
 
     def __add__(self, other):
+        self._assert_finalized()
         if not self.keys():
             return other
         else:
@@ -61,11 +85,21 @@ class Dict(dict):
     def __getattr__(self, item):
         return self.__getitem__(item)
 
+    def __getitem__(self, name):
+        if name not in self:
+            self._assert_finalized()
+            return Dict(__parent=self, __key=name, build=False)
+        return super(Dict, self).__getitem__(name)
+
     def __missing__(self, name):
         return self.__class__(__parent=self, __key=name)
 
     def __delattr__(self, name):
         del self[name]
+
+    def __repr__(self):
+        json_string = json.dumps(self.to_dict(), indent=4)
+        return json_string
 
     def to_dict(self):
         base = {}
@@ -123,3 +157,11 @@ class Dict(dict):
         else:
             self[key] = default
             return default
+
+    def dump(self, filename=None):
+        json_string = json.dumps(self.to_dict(), indent=4)
+        if filename is not None:
+            f = open(filename, "w")
+            f.write(json_string)
+            f.close()
+        return json_string
